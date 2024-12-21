@@ -1,39 +1,8 @@
-//https://github.com/mobizt/FirebaseClient/blob/main/examples/RealtimeDatabase/Simple/StreamNoAuth/StreamNoAuth.ino
-/**
- * This example is for new users which are familiar with other legacy Firebase libraries.
- *
- * The example shows how to listen the data changes in your Firebase Realtime database
- * while the database was set periodically.
- * 
- * All functions used in this example are non-blocking (async) functions.
- *
- * This example will not use any authentication method included database secret.
- *
- * It needs to change the security rules to allow read and write.
- *
- * This example is for ESP32, ESP8266 and Raspberry Pi Pico W.
- *
- * You can adapt the WiFi and SSL client library that are available for your devices.
- *
- * For the ethernet and GSM network which are not covered by this example,
- * you have to try another elaborate examples and read the library documentation thoroughly.
- *
- */
-
-/** Change your Realtime database security rules as the following.
- {
-  "rules": {
-    ".read": true,
-    ".write": true
-  }
-}
-*/
-
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
-
 #include <FirebaseClient.h>
 #include <WiFiClientSecure.h>
+#include <time.h>
 
 #define WIFI_SSID "Jar_Jar_Linksys"
 #define WIFI_PASSWORD "rkf9sXNUPF4n"
@@ -41,49 +10,48 @@
 #define DATABASE_SECRET "ulvxFFkB2cq749SyoDknXf4VkD0kor8EdBYlY1Hp"
 #define DATABASE_URL "https://mezuniyet-projesi-iot-firebase-default-rtdb.europe-west1.firebasedatabase.app/"
 
-const int LED_PIN = 2; // D4 pini (ESP8266'da GPIO2)
+const int LED_PIN = 2;     // D4 pini (ESP8266'da GPIO2)
 const int BUTTON_PIN = 0;  // D3 pini (ESP8266'da GPIO0)
 
-// Button durumu için değişkenler
 int lastButtonState = HIGH;
-int buttonState;
+int buttonState = HIGH;
 unsigned long lastDebounceTime = 0;
 unsigned long debounceDelay = 50;
 
-// The SSL client used for secure server connection.
 WiFiClientSecure ssl1, ssl2;
-
-// The default network config object that used in this library.
 DefaultNetwork network;
-
-// The client, aka async client, is the client that handles many tasks required for each operation.
 AsyncClientClass client1(ssl1, getNetwork(network)), client2(ssl2, getNetwork(network));
-
-// The authentication task handler, aka FirebaseApp.
 FirebaseApp app;
-
-// The Realtime database class object that provides the functions.
 RealtimeDatabase Database;
-
-// The class that stores the operating result, aka AsyncResult.
 AsyncResult result1, result2;
-
-// The no-authentication provider class used for authentication initialization.
 NoAuth noAuth;
 
-unsigned long ms = 0;
+// NTP sunucu ayarları
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 3600;
+const int   daylightOffset_sec = 3600;
+
+void setupTime() {
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    Serial.println("NTP sunucusuna bağlanılıyor...");
+    while (!time(nullptr)) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("\nZaman senkronize edildi");
+}
 
 void printResult(AsyncResult &aResult)
 {
-
     if (aResult.isDebug())
     {
-        Firebase.printf("Debug task: %s, msg: %s\n", aResult.uid().c_str(), aResult.debug().c_str());
+        Serial.println("DEBUG: " + String(aResult.debug().c_str()));
     }
 
     if (aResult.isError())
     {
-        Firebase.printf("Error task: %s, msg: %s, code: %d\n", aResult.uid().c_str(), aResult.error().message().c_str(), aResult.error().code());
+        Serial.println("ERROR: " + String(aResult.error().message().c_str()));
+        Serial.println("Error Code: " + String(aResult.error().code()));
     }
 
     if (aResult.available())
@@ -91,119 +59,106 @@ void printResult(AsyncResult &aResult)
         RealtimeDatabaseResult &RTDB = aResult.to<RealtimeDatabaseResult>();
         if (RTDB.isStream())
         {
-             if (RTDB.dataPath() == "/test/stream/toggle_value")
+            if (String(RTDB.to<const char *>()) != "null" && RTDB.type() != 0)
             {
+                Serial.println("\n----- Stream Data -----");
+                Serial.println("Event: " + String(RTDB.event().c_str()));
+                Serial.println("Path: " + String(RTDB.dataPath().c_str()));
+                Serial.println("Data: " + String(RTDB.to<const char *>()));
+                
                 bool ledState = RTDB.to<bool>();
-                digitalWrite(LED_PIN, ledState ? HIGH : LOW);
-                Serial.printf("LED State changed to: %s\n", ledState ? "ON" : "OFF");
+                digitalWrite(LED_PIN, !ledState);
+                Serial.println("LED durumu -> " + String(ledState ? "AÇIK" : "KAPALI"));
             }
-
-            Serial.println("----------------------------");
-            Firebase.printf("task: %s\n", aResult.uid().c_str());
-            Firebase.printf("event: %s\n", RTDB.event().c_str());
-            Firebase.printf("path: %s\n", RTDB.dataPath().c_str());
-            Firebase.printf("data: %s\n", RTDB.to<const char *>());
-            Firebase.printf("type: %d\n", RTDB.type());
-
-            // The stream event from RealtimeDatabaseResult can be converted to the values as following.
-            bool v1 = RTDB.to<bool>();
-            int v2 = RTDB.to<int>();
-            float v3 = RTDB.to<float>();
-            double v4 = RTDB.to<double>();
-            String v5 = RTDB.to<String>();
-        }
-        else
-        {
-            Serial.println("----------------------------");
-            Firebase.printf("task: %s, payload: %s\n", aResult.uid().c_str(), aResult.c_str());
         }
     }
 }
 
 void toggleLED() {
-    // Mevcut LED durumunu oku
-    Database.get(client2, "/test/stream/toggle_value", result2);
-    if (result2.available()) {
-        RealtimeDatabaseResult &RTDB = result2.to<RealtimeDatabaseResult>();
-        bool currentState = RTDB.to<bool>();
-        // LED durumunu tersine çevir
-        Database.set<bool>(client2, "/test/stream/toggle_value", !currentState, result2);
-    }
+    Serial.println("\nButona basıldı!");
+    bool currentState = digitalRead(LED_PIN);
+    bool newState = !currentState;
+    
+    Serial.println("LED durumu değiştiriliyor...");
+    Database.set<bool>(client2, "test/stream/toggle_value", newState, result2);
 }
 
 void setup()
 {
-
     Serial.begin(115200);
-     // Pin modlarını ayarla
+    Serial.println("\nBaşlatılıyor...");
+    
     pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, HIGH); // LED başlangıçta kapalı
     pinMode(BUTTON_PIN, INPUT_PULLUP);
-
+    
+    Serial.print("WiFi'ya bağlanılıyor");
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-    Serial.print("Connecting to Wi-Fi");
     while (WiFi.status() != WL_CONNECTED)
     {
-        Serial.print(".");
         delay(300);
+        Serial.print(".");
     }
-    Serial.println();
-    Serial.print("Connected with IP: ");
-    Serial.println(WiFi.localIP());
-    Serial.println();
+    Serial.println("\nWiFi Bağlandı: " + WiFi.localIP().toString());
 
-    Firebase.printf("Firebase Client v%s\n", FIREBASE_CLIENT_VERSION);
+    // NTP ile zaman senkronizasyonu
+    setupTime();
 
+    // SSL ayarları
     ssl1.setInsecure();
     ssl2.setInsecure();
-    ssl1.setBufferSizes(1024, 1024);
-    ssl2.setBufferSizes(1024, 1024);
+    ssl1.setBufferSizes(4096, 1024); // Buffer boyutunu artırdık
+    ssl2.setBufferSizes(4096, 1024);
 
-    // Initialize the authentication handler.
+    Serial.println("Firebase'e bağlanılıyor...");
     initializeApp(client1, app, getAuth(noAuth));
-
-    // Binding the authentication handler with your Database class object.
     app.getApp<RealtimeDatabase>(Database);
-
-    // Set your database URL
     Database.url(DATABASE_URL);
 
-    // Initiate the Stream connection to listen the data changes.
-    // This function can be called once.
-    // The Stream was connected using async get function (non-blocking) which the result will assign to the function in this case.
-    //Database.get(client1, "/test/stream", result1, true /* this option is for Stream connection */);
-     // LED durumunu dinlemeye başla
-    Database.get(client1, "/test/stream/toggle_value", result1, true);
+    // 5 saniye bekle
+    Serial.println("Bağlantı stabilizasyonu için bekleniyor...");
+    delay(5000);
+
+    // İlk değeri ayarla
+    Serial.println("Başlangıç değeri ayarlanıyor...");
+    Database.set<bool>(client2, "test/stream/toggle_value", false, result2);
+    delay(1000);
+
+    // Stream'i başlat
+    Serial.println("Stream başlatılıyor...");
+    Database.get(client1, "test/stream/toggle_value", result1, true);
+    
+    Serial.println("Hazır!");
 }
 
 void loop()
 {
-    // Polling for internal task operation
-    // This required for Stream in this case.
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("WiFi bağlantısı koptu! Yeniden bağlanılıyor...");
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        delay(5000);
+        return;
+    }
+
     Database.loop();
 
-    // We don't have to poll authentication handler task using app.loop() as seen in other examples
-    // because the database secret is the priviledge access key that never expired.
-    
-    // Button kontrolü ve debounce
+    // Button kontrolü
     int reading = digitalRead(BUTTON_PIN);
-
     if (reading != lastButtonState) {
         lastDebounceTime = millis();
     }
 
-    // Set the random int value to "/test/stream/int" every 20 seconds.
-    if (millis() - lastDebounceTime > debounceDelay )
-      if (reading != buttonState) {
-        buttonState = reading;
-          if (buttonState == LOW) {  // Button basıldığında
-            toggleLED();
-      }
+    if ((millis() - lastDebounceTime) > debounceDelay) {
+        if (reading != buttonState) {
+            buttonState = reading;
+            if (buttonState == LOW) {
+                toggleLED();
+            }
+        }
     }
-
     lastButtonState = reading;
-    
-    // Polling print the result if it is available.
+
     printResult(result1);
     printResult(result2);
+    delay(10);
 }
