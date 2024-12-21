@@ -44,6 +44,12 @@
 const int LED_PIN = 2; // D4 pini (ESP8266'da GPIO2)
 const int BUTTON_PIN = 0;  // D3 pini (ESP8266'da GPIO0)
 
+// Button durumu için değişkenler
+int lastButtonState = HIGH;
+int buttonState;
+unsigned long lastDebounceTime = 0;
+unsigned long debounceDelay = 50;
+
 // The SSL client used for secure server connection.
 WiFiClientSecure ssl1, ssl2;
 
