@@ -41,6 +41,9 @@
 #define DATABASE_SECRET "ulvxFFkB2cq749SyoDknXf4VkD0kor8EdBYlY1Hp"
 #define DATABASE_URL "https://mezuniyet-projesi-iot-firebase-default-rtdb.europe-west1.firebasedatabase.app/"
 
+const int LED_PIN = 2; // D4 pini (ESP8266'da GPIO2)
+const int BUTTON_PIN = 0;  // D3 pini (ESP8266'da GPIO0)
+
 // The SSL client used for secure server connection.
 WiFiClientSecure ssl1, ssl2;
 
@@ -82,6 +85,13 @@ void printResult(AsyncResult &aResult)
         RealtimeDatabaseResult &RTDB = aResult.to<RealtimeDatabaseResult>();
         if (RTDB.isStream())
         {
+             if (RTDB.dataPath() == "/test/stream/toggle_value")
+            {
+                bool ledState = RTDB.to<bool>();
+                digitalWrite(LED_PIN, ledState ? HIGH : LOW);
+                Serial.printf("LED State changed to: %s\n", ledState ? "ON" : "OFF");
+            }
+
             Serial.println("----------------------------");
             Firebase.printf("task: %s\n", aResult.uid().c_str());
             Firebase.printf("event: %s\n", RTDB.event().c_str());
@@ -104,10 +114,25 @@ void printResult(AsyncResult &aResult)
     }
 }
 
+void toggleLED() {
+    // Mevcut LED durumunu oku
+    Database.get(client2, "/test/stream/toggle_value", result2);
+    if (result2.available()) {
+        RealtimeDatabaseResult &RTDB = result2.to<RealtimeDatabaseResult>();
+        bool currentState = RTDB.to<bool>();
+        // LED durumunu tersine çevir
+        Database.set<bool>(client2, "/test/stream/toggle_value", !currentState, result2);
+    }
+}
+
 void setup()
 {
 
     Serial.begin(115200);
+     // Pin modlarını ayarla
+    pinMode(LED_PIN, OUTPUT);
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
+
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
     Serial.print("Connecting to Wi-Fi");
@@ -140,7 +165,9 @@ void setup()
     // Initiate the Stream connection to listen the data changes.
     // This function can be called once.
     // The Stream was connected using async get function (non-blocking) which the result will assign to the function in this case.
-    Database.get(client1, "/test/stream", result1, true /* this option is for Stream connection */);
+    //Database.get(client1, "/test/stream", result1, true /* this option is for Stream connection */);
+     // LED durumunu dinlemeye başla
+    Database.get(client1, "/test/stream/toggle_value", result1, true);
 }
 
 void loop()
@@ -151,15 +178,25 @@ void loop()
 
     // We don't have to poll authentication handler task using app.loop() as seen in other examples
     // because the database secret is the priviledge access key that never expired.
+    
+    // Button kontrolü ve debounce
+    int reading = digitalRead(BUTTON_PIN);
 
-    // Set the random int value to "/test/stream/int" every 20 seconds.
-    if (millis() - ms > 20000 || ms == 0)
-    {
-        ms = millis();
-        // We set the data with this non-blocking set function (async) which the result was assign to the function.
-        Database.set<int>(client2, "/test/stream/int", random(100, 999), result2);
+    if (reading != lastButtonState) {
+        lastDebounceTime = millis();
     }
 
+    // Set the random int value to "/test/stream/int" every 20 seconds.
+    if (millis() - lastDebounceTime > debounceDelay )
+      if (reading != buttonState) {
+        buttonState = reading;
+          if (buttonState == LOW) {  // Button basıldığında
+            toggleLED();
+      }
+    }
+
+    lastButtonState = reading;
+    
     // Polling print the result if it is available.
     printResult(result1);
     printResult(result2);
