@@ -1,5 +1,10 @@
 #include <Arduino.h>
+#if defined(ESP32) || defined(ARDUINO_RASPBERRY_PI_PICO_W)
+#include <WiFi.h>
+#elif defined(ESP8266)
 #include <ESP8266WiFi.h>
+#endif
+
 #include <FirebaseClient.h>
 #include <WiFiClientSecure.h>
 
@@ -9,81 +14,79 @@
 #define DATABASE_SECRET "ulvxFFkB2cq749SyoDknXf4VkD0kor8EdBYlY1Hp"
 #define DATABASE_URL "https://mezuniyet-projesi-iot-firebase-default-rtdb.europe-west1.firebasedatabase.app/"
 
+#define LED_PIN D2        // LED'in bağlı olduğu pin
+#define BUTTON_PIN D1     // Butonun bağlı olduğu pin
 
-#define LED_PIN D2    
-#define BUTTON_PIN D1 
-
-WiFiClientSecure ssl1;
+WiFiClientSecure ssl1, ssl2;
 DefaultNetwork network;
-AsyncClientClass client1(ssl1, getNetwork(network));
+AsyncClientClass client1(ssl1, getNetwork(network)), client2(ssl2, getNetwork(network));
 FirebaseApp app;
 RealtimeDatabase Database;
-AsyncResult result1;
+AsyncResult result1, result2;
 NoAuth noAuth;
 
-bool lastButtonState = HIGH;
-bool buttonState;
-bool ledState = LOW;
+bool lastButtonState = HIGH; // Son okunan buton durumu
+bool ledState = LOW;         // LED'in durumu
 
-void printResult(AsyncResult &aResult) {
+// Firebase'den gelen veriyi işleyen fonksiyon
+void handleStream(AsyncResult &aResult) {
     if (aResult.available()) {
         RealtimeDatabaseResult &RTDB = aResult.to<RealtimeDatabaseResult>();
-        if (RTDB.isStream()) {
-            if (RTDB.dataPath() == "/led") {
-                ledState = RTDB.to<bool>();
+        if (RTDB.isStream() && RTDB.dataPath() == "/led") {
+            bool newLedState = RTDB.to<bool>(); // Firebase'den gelen LED durumu
+            if (newLedState != ledState) {      // Eğer durum farklıysa LED'i güncelle
+                ledState = newLedState;
                 digitalWrite(LED_PIN, ledState ? HIGH : LOW);
-                Serial.print("LED State: ");
-                Serial.println(ledState);
+                Serial.printf("Firebase'den LED güncellendi: %s\n", ledState ? "ON" : "OFF");
             }
         }
-    }
-
-    if (aResult.isError()) {
-        Serial.print("Error: ");
-        Serial.println(aResult.error().message().c_str());
     }
 }
 
 void setup() {
     Serial.begin(115200);
-    
     pinMode(LED_PIN, OUTPUT);
     pinMode(BUTTON_PIN, INPUT_PULLUP);
-    digitalWrite(LED_PIN, LOW);
-    
-    Serial.println("Connecting to WiFi...");
+
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     while (WiFi.status() != WL_CONNECTED) {
-        delay(300);
         Serial.print(".");
+        delay(300);
     }
-    Serial.println("\nConnected!");
+    Serial.println("\nWi-Fi bağlantısı kuruldu!");
 
     ssl1.setInsecure();
+    ssl2.setInsecure();
+#if defined(ESP8266)
     ssl1.setBufferSizes(1024, 1024);
+    ssl2.setBufferSizes(1024, 1024);
+#endif
 
-    Serial.println("Connecting to Firebase...");
     initializeApp(client1, app, getAuth(noAuth));
     app.getApp<RealtimeDatabase>(Database);
     Database.url(DATABASE_URL);
-    Database.get(client1, "/led", result1, true);
+
+    // Firebase veritabanı dinlemesi başlatılıyor
+    Database.get(client1, "/led", result1, true); // "/led" için Stream bağlantısı başlatılıyor
 }
 
 void loop() {
+    // Firebase veritabanını dinleme
     Database.loop();
-    
-    buttonState = digitalRead(BUTTON_PIN);
-    
-    if (buttonState != lastButtonState) {
-        if (buttonState == LOW) {
-            ledState = !ledState;
-            Database.set<bool>(client1, "/led", ledState, result1);
-            digitalWrite(LED_PIN, ledState ? HIGH : LOW);
-            Serial.println("Button pressed - LED toggled");
-        }
-        delay(50);
+
+    // Buton durumu kontrol ediliyor
+    bool buttonState = digitalRead(BUTTON_PIN);
+    if (buttonState == LOW && lastButtonState == HIGH) { // Butona basıldı
+        ledState = !ledState;                            // LED durumunu değiştir
+        digitalWrite(LED_PIN, ledState ? HIGH : LOW);    // LED'i güncelle
+
+        // Firebase'deki "/led" değerini güncelle
+        Database.set<bool>(client2, "/led", ledState, result2);
+        Serial.printf("Butona basıldı, LED durumu: %s\n", ledState ? "ON" : "OFF");
+        delay(300); // Titreşim önleme
     }
-    
     lastButtonState = buttonState;
-    printResult(result1);
+
+    // Firebase işlem sonuçlarını yazdır ve Stream güncellemelerini işleme al
+    handleStream(result1);
 }
