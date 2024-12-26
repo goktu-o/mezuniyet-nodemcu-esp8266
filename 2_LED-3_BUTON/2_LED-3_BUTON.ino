@@ -144,7 +144,7 @@ void loop()
     if (digitalRead(EXTRA_BUTTON_PIN) == LOW && (currentMillis - lastExtraButtonPress) > debounceDelay)
     {
         extraButtonState = !extraButtonState;
-        Database.set<bool>(client2, "/button_extra", extraButtonState, result3);
+        Database.set<bool>(client2, "/extra_button", extraButtonState, result3);
         lastExtraButtonPress = currentMillis;
     }
 
