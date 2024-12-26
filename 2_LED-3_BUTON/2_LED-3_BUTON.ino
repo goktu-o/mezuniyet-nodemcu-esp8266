@@ -36,7 +36,7 @@ bool extraButtonState = false;  // State for the new button
 unsigned long lastRedButtonPress = 0;
 unsigned long lastBlueButtonPress = 0;
 unsigned long lastExtraButtonPress = 0;  // Debounce time for the new button
-const unsigned long debounceDelay = 50;
+const unsigned long debounceDelay = 500;  // Updated debounce delay
 
 void printResult(AsyncResult &aResult)
 {
