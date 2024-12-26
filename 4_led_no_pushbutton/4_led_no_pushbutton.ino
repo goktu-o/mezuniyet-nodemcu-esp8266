@@ -15,23 +15,28 @@
 #define API_KEY "AIzaSyD1QtzC1xJ0QC2KDQNawpYxp0zc1_eVG3w"
 #define DATABASE_URL "https://mezuniyet-projesi-iot-firebase-default-rtdb.europe-west1.firebasedatabase.app/"
 
+#define RED_BUTTON_PIN D1
 #define RED_LED_PIN D2
+#define BLUE_BUTTON_PIN D5
 #define BLUE_LED_PIN D6
-#define GREEN_LED_PIN D1
-#define YELLOW_LED_PIN D5
+#define EXTRA_BUTTON_PIN D7  // New button pin
 
 WiFiClientSecure ssl1, ssl2;
 DefaultNetwork network;
 AsyncClientClass client1(ssl1, getNetwork(network)), client2(ssl2, getNetwork(network));
 FirebaseApp app;
 RealtimeDatabase Database;
-AsyncResult result1, result2;
+AsyncResult result1, result2, result3;  // Added result3 for the new button
 NoAuth noAuth;
 
 bool redLedState = false;
 bool blueLedState = false;
-bool greenLedState = false;
-bool yellowLedState = false;
+bool extraButtonState = false;  // State for the new button
+
+unsigned long lastRedButtonPress = 0;
+unsigned long lastBlueButtonPress = 0;
+unsigned long lastExtraButtonPress = 0;  // Debounce time for the new button
+const unsigned long debounceDelay = 50;
 
 void printResult(AsyncResult &aResult)
 {
@@ -67,16 +72,6 @@ void printResult(AsyncResult &aResult)
                 blueLedState = RTDB.to<bool>();
                 digitalWrite(BLUE_LED_PIN, blueLedState ? HIGH : LOW);
             }
-            else if (RTDB.dataPath() == "/green_led")
-            {
-                greenLedState = RTDB.to<bool>();
-                digitalWrite(GREEN_LED_PIN, greenLedState ? HIGH : LOW);
-            }
-            else if (RTDB.dataPath() == "/yellow_led")
-            {
-                yellowLedState = RTDB.to<bool>();
-                digitalWrite(YELLOW_LED_PIN, yellowLedState ? HIGH : LOW);
-            }
         }
         else
         {
@@ -92,8 +87,10 @@ void setup()
 
     pinMode(RED_LED_PIN, OUTPUT);
     pinMode(BLUE_LED_PIN, OUTPUT);
-    pinMode(GREEN_LED_PIN, OUTPUT);
-    pinMode(YELLOW_LED_PIN, OUTPUT);
+
+    pinMode(RED_BUTTON_PIN, INPUT_PULLUP);
+    pinMode(BLUE_BUTTON_PIN, INPUT_PULLUP);
+    pinMode(EXTRA_BUTTON_PIN, INPUT_PULLUP);  
 
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
@@ -126,6 +123,32 @@ void setup()
 void loop()
 {
     Database.loop();
+    unsigned long currentMillis = millis();
+
+    if (digitalRead(RED_BUTTON_PIN) == LOW && (currentMillis - lastRedButtonPress) > debounceDelay)
+    {
+        redLedState = !redLedState;
+        digitalWrite(RED_LED_PIN, redLedState ? HIGH : LOW);
+        Database.set<bool>(client2, "/red_led", redLedState, result2);
+        lastRedButtonPress = currentMillis;
+    }
+
+    if (digitalRead(BLUE_BUTTON_PIN) == LOW && (currentMillis - lastBlueButtonPress) > debounceDelay)
+    {
+        blueLedState = !blueLedState;
+        digitalWrite(BLUE_LED_PIN, blueLedState ? HIGH : LOW);
+        Database.set<bool>(client2, "/blue_led", blueLedState, result2);
+        lastBlueButtonPress = currentMillis;
+    }
+
+    if (digitalRead(EXTRA_BUTTON_PIN) == LOW && (currentMillis - lastExtraButtonPress) > debounceDelay)
+    {
+        extraButtonState = !extraButtonState;
+        Database.set<bool>(client2, "/button_extra", extraButtonState, result3);
+        lastExtraButtonPress = currentMillis;
+    }
+
     printResult(result1);
     printResult(result2);
+    printResult(result3); 
 }
